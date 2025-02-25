@@ -84,54 +84,73 @@ app.post("/users/:email", async (req, res) => {
   }
 });
 
+app.get("/api/tasks", async(req,res)=>{
+  const result = await taskCollection.find().toArray();
+  res.send(result)
+})
+
 // **2️⃣ Fetch All Tasks**
 app.get("/tasks", async (req, res) => {
-    try {
-      const tasks = await taskCollection.find().toArray();
-      res.send(tasks);
-    } catch (error) {
-      res.status(500).send({ error: "Failed to fetch tasks!" });
-    }
-  });
-  
+  const email = req.query.email;
 
-app.post("/api/tasks", async (req, res) => {
-  const { title, description, category } = req.body;
-
-  if (!title || title.length > 50) {
-    return res
-      .status(400)
-      .json({ error: "Title must be under 50 characters." });
+  if (!email) {
+    return res.status(400).json({ error: "User email is required!" });
   }
-  if (description && description.length > 200) {
-    return res
-      .status(400)
-      .json({ error: "Description must be under 200 characters." });
-  }
-
-  const newTask = {
-    title,
-    description: description || "",
-    category: category || "To-Do",
-    timestamp: new Date(),
-  };
 
   try {
-    const result = await taskCollection.insertOne(newTask);
-
-    if (result.insertedId) {
-      io.emit("task-updated"); // Notify all clients
-      return res
-        .status(201)
-        .json({ message: "Task added successfully", task: newTask });
-    } else {
-      return res.status(500).json({ error: "Failed to insert task!" });
-    }
+    const tasks = await taskCollection.find({ email }).toArray(); // ✅ Fetch tasks by email
+    res.status(200).json(tasks);
   } catch (error) {
-    console.error("Database Insert Error:", error);
+    console.error("Database Fetch Error:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
+
+  
+
+  app.post("/api/tasks", async (req, res) => {
+    const { title, description, category, email } = req.body; // Get email from request body
+  
+    if (!title || title.length > 50) {
+      return res
+        .status(400)
+        .json({ error: "Title must be under 50 characters." });
+    }
+    if (description && description.length > 200) {
+      return res
+        .status(400)
+        .json({ error: "Description must be under 200 characters." });
+    }
+    if (!email) {
+      return res.status(400).json({ error: "User email is required!" }); // Ensure email is provided
+    }
+  
+    const newTask = {
+      title,
+      description: description || "",
+      category: category || "To-Do",
+      email, // ✅ Save user's email
+      timestamp: new Date(),
+    };
+  
+    try {
+      const result = await taskCollection.insertOne(newTask);
+  
+      if (result.insertedId) {
+        io.emit("task-updated"); // Notify all clients
+        return res
+          .status(201)
+          .json({ message: "Task added successfully", task: newTask });
+      } else {
+        return res.status(500).json({ error: "Failed to insert task!" });
+      }
+    } catch (error) {
+      console.error("Database Insert Error:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
+  });
+  
 
 
 // app.patch("/tasks/:id", async (req, res) => {
@@ -161,36 +180,42 @@ app.post("/api/tasks", async (req, res) => {
 //   });
   
   // **4️⃣ Edit Task API (Title, Description, Category)**
-app.patch("/tasks/:id", async (req, res) => {
+  app.patch("/tasks/:id", async (req, res) => {
     const { id } = req.params;
     const { title, description, category } = req.body;
-  
+
     if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ error: "Invalid task ID!" });
+        return res.status(400).json({ error: "Invalid task ID!" });
     }
-  
+
+    if (!title && !description && !category) {
+        return res.status(400).json({ error: "No valid update fields provided!" });
+    }
+
     try {
-      const updateFields = {};
-      if (title) updateFields.title = title;
-      if (description) updateFields.description = description;
-      if (category) updateFields.category = category;
-  
-      const result = await taskCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: updateFields }
-      );
-  
-      if (result.modifiedCount > 0) {
-        io.emit("task-updated"); // Notify all clients
-        return res.status(200).json({ message: "Task updated successfully" });
-      } else {
-        return res.status(404).json({ error: "Task not found!" });
-      }
+        const updateFields = {};
+        if (title) updateFields.title = title;
+        if (description) updateFields.description = description;
+        if (category) updateFields.category = category;
+
+        const result = await taskCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updateFields }
+        );
+
+        if (result.modifiedCount > 0) {
+            return res.status(200).json({ message: "Task updated successfully", updatedTask: updateFields });
+        } else {
+            return res.status(400).json({ error: "No changes made to the task!" });
+        }
     } catch (error) {
-      console.error("Database Update Error:", error);
-      res.status(500).json({ error: "Internal Server Error" });
+        console.error("Database Update Error:", error);
+        res.status(500).json({ error: "Internal Server Error" });
     }
-  });
+});
+
+
+  
   
   // **5️⃣ Delete Task API**
   app.delete("/tasks/:id", async (req, res) => {
